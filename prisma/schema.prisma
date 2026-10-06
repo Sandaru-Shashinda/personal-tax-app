@@ -1,0 +1,937 @@
+// Sri Lankan personal tax platform — relational schema.
+//
+// Conventions
+//   - UUID primary keys, createdAt/updatedAt on every mutable table.
+//   - Soft deletion (deletedAt) on user-owned financial records so audit history survives.
+//   - Money is NUMERIC(18,2) in LKR unless a column says otherwise. Foreign-currency
+//     records keep the original amount, the rate, its source and date next to the LKR value.
+//   - Every user-owned row carries userId so ownership checks are a single indexed predicate.
+//
+// Income uses class-table inheritance: IncomeEntry holds what every receipt shares and a
+// 1:1 detail table holds the type-specific columns.
+//   Salary                      -> SalaryIncome
+//   Business / Professional     -> BusinessIncome   (IncomeSource.type distinguishes them)
+//   Rental                      -> RentalIncome
+//   Interest / Dividend / other investment -> InvestmentIncome
+//   Capital gain                -> CapitalGain
+//   Foreign income              -> any of the above with IncomeEntry.isForeignSource = true
+//   Other income                -> IncomeEntry only
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  email            String    @unique @db.VarChar(254)
+  passwordHash     String
+  role             UserRole  @default(USER)
+  emailVerifiedAt  DateTime?
+  twoFactorSecret  String? // AES-256-GCM encrypted TOTP secret
+  twoFactorEnabled Boolean   @default(false)
+  onboardingDoneAt DateTime?
+  isDemo           Boolean   @default(false)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  profile            Profile?
+  taxpayer           Taxpayer?
+  sessions           Session[]
+  tokens             AuthToken[]
+  recoveryCodes      RecoveryCode[]
+  employers          Employer[]
+  incomeSources      IncomeSource[]
+  incomeEntries      IncomeEntry[]
+  expenses           Expense[]
+  qualifyingPayments QualifyingPayment[]
+  calculations       TaxCalculation[]
+  payments           TaxPayment[]
+  instalments        TaxInstalment[]
+  certificates       TaxCertificate[]
+  documents          Document[]
+  taxReturns         TaxReturn[]
+  notifications      Notification[]
+  reminders          Reminder[]
+  auditLogs          AuditLog[]
+  yearProfiles       TaxpayerYear[]
+}
+
+model Session {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  tokenHash   String   @unique // SHA-256 of the cookie token; the raw token is never stored
+  userAgent   String?  @db.VarChar(400)
+  ipAddress   String?  @db.VarChar(64)
+  twoFactorOk Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+  expiresAt   DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum AuthTokenType {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model AuthToken {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @db.Uuid
+  type      AuthTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model RecoveryCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Fixed-window counters for login / reset / public calculator throttling.
+model RateLimit {
+  key         String   @id @db.VarChar(200)
+  count       Int
+  windowStart DateTime
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+}
+
+model Profile {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @unique @db.Uuid
+  fullName       String    @db.VarChar(200)
+  dateOfBirth    DateTime? @db.Date
+  phone          String?   @db.VarChar(30)
+  addressLine1   String?   @db.VarChar(200)
+  addressLine2   String?   @db.VarChar(200)
+  city           String?   @db.VarChar(100)
+  district       String?   @db.VarChar(60)
+  province       String?   @db.VarChar(60)
+  postalCode     String?   @db.VarChar(10)
+  emailReminders Boolean   @default(true)
+  inAppReminders Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum ResidencyStatus {
+  RESIDENT
+  NON_RESIDENT_CITIZEN
+  NON_RESIDENT
+}
+
+enum EmploymentStatus {
+  EMPLOYED
+  SELF_EMPLOYED
+  BOTH
+  RETIRED
+  NOT_EMPLOYED
+}
+
+model Taxpayer {
+  id               String           @id @default(uuid()) @db.Uuid
+  userId           String           @unique @db.Uuid
+  tin              String?          @db.VarChar(20)
+  nicEncrypted     String? // NIC / passport, AES-256-GCM; optional
+  residencyStatus  ResidencyStatus  @default(RESIDENT)
+  employmentStatus EmploymentStatus @default(EMPLOYED)
+  incomeTypes      IncomeType[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Per-year taxpayer facts (residency can change year to year) and filing state.
+enum FilingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY_TO_FILE
+  FILED_BY_USER
+}
+
+model TaxpayerYear {
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @db.Uuid
+  taxYearId       String          @db.Uuid
+  residencyStatus ResidencyStatus @default(RESIDENT)
+  filingStatus    FilingStatus    @default(NOT_STARTED)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id])
+
+  @@unique([userId, taxYearId])
+}
+
+// ───────────────────────────── Tax rules ─────────────────────────────
+
+enum TaxYearStatus {
+  UPCOMING
+  CURRENT
+  CLOSED
+}
+
+model TaxYear {
+  id        String        @id @default(uuid()) @db.Uuid
+  code      String        @unique @db.VarChar(9) // "2026/2027"
+  startsOn  DateTime      @db.Date
+  endsOn    DateTime      @db.Date
+  status    TaxYearStatus @default(UPCOMING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  rules              TaxRule[]
+  deadlines          TaxDeadline[]
+  incomeEntries      IncomeEntry[]
+  expenses           Expense[]
+  qualifyingPayments QualifyingPayment[]
+  calculations       TaxCalculation[]
+  payments           TaxPayment[]
+  instalments        TaxInstalment[]
+  certificates       TaxCertificate[]
+  documents          Document[]
+  taxReturns         TaxReturn[]
+  yearProfiles       TaxpayerYear[]
+
+  @@index([startsOn, endsOn])
+}
+
+enum SourceDocumentType {
+  ACT
+  GAZETTE
+  CIRCULAR
+  GUIDELINE
+  BILL
+  IRD_NOTICE
+  OTHER
+}
+
+model TaxRuleSource {
+  id              String             @id @default(uuid()) @db.Uuid
+  ref             String             @unique @db.VarChar(20) // "S4" — matches TAX_RULES.md
+  title           String             @db.VarChar(400)
+  authority       String             @db.VarChar(200)
+  url             String             @db.VarChar(1000)
+  documentType    SourceDocumentType
+  publicationDate DateTime?          @db.Date
+  effectiveDate   DateTime?          @db.Date
+  contentHash     String?            @db.VarChar(64)
+  lastCheckedAt   DateTime?
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  versions  TaxRuleVersion[]
+  deadlines TaxDeadline[]
+}
+
+enum TaxRuleType {
+  PERSONAL_RELIEF
+  TAX_BANDS
+  CAPITAL_GAINS_RATE
+  CAPITAL_GAINS_EXEMPTION
+  FOREIGN_INCOME_CAP
+  SPECIAL_RATE
+  TERMINAL_BENEFIT_BANDS
+  RENT_RELIEF
+  SOLAR_RELIEF
+  CHARITY_DONATION
+  GOVERNMENT_DONATION
+  WITHHOLDING_RATE
+  DIVIDEND_TREATMENT
+  EXPENSE_DEDUCTIBILITY
+  INSTALMENT_BASIS
+  FILING_REQUIREMENT
+  PENALTY_INFO
+  EXEMPTION
+}
+
+model TaxRule {
+  id          String      @id @default(uuid()) @db.Uuid
+  taxYearId   String      @db.Uuid
+  ruleType    TaxRuleType
+  key         String      @db.VarChar(80) // discriminator within a type, e.g. "interest", "individual"
+  name        String      @db.VarChar(200)
+  description String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  taxYear  TaxYear          @relation(fields: [taxYearId], references: [id])
+  versions TaxRuleVersion[]
+
+  @@unique([taxYearId, ruleType, key])
+}
+
+enum RuleVersionStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+}
+
+enum VerificationStatus {
+  VERIFIED
+  VERIFIED_SECONDARY
+  REQUIRES_VERIFICATION
+}
+
+model TaxRuleVersion {
+  id             String             @id @default(uuid()) @db.Uuid
+  ruleId         String             @db.Uuid
+  version        Int
+  parameters     Json
+  effectiveFrom  DateTime           @db.Date
+  effectiveTo    DateTime?          @db.Date
+  status         RuleVersionStatus  @default(DRAFT)
+  verification   VerificationStatus @default(REQUIRES_VERIFICATION)
+  sourceId       String?            @db.Uuid
+  sourceLocator  String?            @db.VarChar(200) // "Annexure 7", "§2.1(a)"
+  notes          String?
+  lastVerifiedAt DateTime?
+  createdById    String?            @db.Uuid
+  activatedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  rule   TaxRule        @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  source TaxRuleSource? @relation(fields: [sourceId], references: [id])
+
+  @@unique([ruleId, version])
+  @@index([ruleId, status, effectiveFrom])
+}
+
+enum DeadlineType {
+  INSTALMENT
+  FINAL_PAYMENT
+  RETURN_FILING
+  APIT_REMITTANCE
+  ANNUAL_STATEMENT
+  OTHER
+}
+
+model TaxDeadline {
+  id           String             @id @default(uuid()) @db.Uuid
+  taxYearId    String             @db.Uuid
+  type         DeadlineType
+  title        String             @db.VarChar(200)
+  description  String?
+  dueOn        DateTime           @db.Date
+  appliesTo    String             @default("INDIVIDUAL") @db.VarChar(40) // INDIVIDUAL | EMPLOYER
+  verification VerificationStatus @default(VERIFIED)
+  sourceId     String?            @db.Uuid
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  taxYear TaxYear        @relation(fields: [taxYearId], references: [id])
+  source  TaxRuleSource? @relation(fields: [sourceId], references: [id])
+
+  @@unique([taxYearId, type, title])
+  @@index([dueOn])
+}
+
+// ───────────────────────────── Income ─────────────────────────────
+
+enum IncomeType {
+  SALARY
+  FREELANCE
+  BUSINESS
+  PROFESSIONAL
+  RENTAL
+  INTEREST
+  DIVIDEND
+  INVESTMENT_OTHER
+  CAPITAL_GAIN
+  FOREIGN
+  OTHER
+}
+
+model Employer {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  name      String    @db.VarChar(200)
+  tin       String?   @db.VarChar(20)
+  address   String?   @db.VarChar(300)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources IncomeSource[]
+
+  @@index([userId])
+}
+
+// A stream of income: an employment, a client base, a property, a bank account.
+model IncomeSource {
+  id                  String     @id @default(uuid()) @db.Uuid
+  userId              String     @db.Uuid
+  type                IncomeType
+  name                String     @db.VarChar(200)
+  employerId          String?    @db.Uuid
+  isPrimaryEmployment Boolean    @default(true)
+  institution         String?    @db.VarChar(200) // bank, broker
+  reference           String?    @db.VarChar(100) // account no. (masked), property address
+  startedOn           DateTime?  @db.Date
+  endedOn             DateTime?  @db.Date
+  notes               String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  deletedAt           DateTime?
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employer     Employer?        @relation(fields: [employerId], references: [id])
+  entries      IncomeEntry[]
+  expenses     Expense[]
+  documents    Document[]
+  certificates TaxCertificate[]
+
+  @@index([userId, type])
+}
+
+enum EntryPeriod {
+  MONTHLY
+  ANNUAL
+  ONE_OFF
+}
+
+model IncomeEntry {
+  id                 String      @id @default(uuid()) @db.Uuid
+  userId             String      @db.Uuid
+  taxYearId          String      @db.Uuid
+  sourceId           String      @db.Uuid
+  type               IncomeType
+  period             EntryPeriod @default(ONE_OFF)
+  receivedOn         DateTime    @db.Date // cash-basis date; first day of month for MONTHLY
+  description        String?     @db.VarChar(300)
+  grossAmount        Decimal     @db.Decimal(18, 2) // LKR
+  withholdingTax     Decimal     @default(0) @db.Decimal(18, 2) // APIT / AIT / WHT deducted at source, LKR
+  // Multi-currency: populated only when the receipt was not in LKR. Never converted silently.
+  currency           String      @default("LKR") @db.Char(3)
+  originalAmount     Decimal?    @db.Decimal(18, 2)
+  exchangeRate       Decimal?    @db.Decimal(18, 6)
+  exchangeRateSource String?     @db.VarChar(120)
+  exchangeRateDate   DateTime?   @db.Date
+  isForeignSource    Boolean     @default(false)
+  remittedViaBank    Boolean     @default(false) // foreign currency remitted through a bank → 15% cap
+  foreignTaxPaid     Decimal     @default(0) @db.Decimal(18, 2) // LKR
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear     TaxYear           @relation(fields: [taxYearId], references: [id])
+  source      IncomeSource      @relation(fields: [sourceId], references: [id])
+  salary      SalaryIncome?
+  business    BusinessIncome?
+  rental      RentalIncome?
+  investment  InvestmentIncome?
+  capitalGain CapitalGain?
+  documents   Document[]
+
+  @@index([userId, taxYearId, type])
+  @@index([userId, taxYearId, receivedOn])
+  @@index([sourceId])
+}
+
+model SalaryIncome {
+  entryId          String  @id @db.Uuid
+  basicSalary      Decimal @default(0) @db.Decimal(18, 2)
+  allowances       Decimal @default(0) @db.Decimal(18, 2)
+  bonuses          Decimal @default(0) @db.Decimal(18, 2)
+  overtime         Decimal @default(0) @db.Decimal(18, 2)
+  benefits         Decimal @default(0) @db.Decimal(18, 2) // taxable non-cash benefits per T.10
+  otherEmployment  Decimal @default(0) @db.Decimal(18, 2)
+  terminalBenefits Decimal @default(0) @db.Decimal(18, 2) // concessionary-rate terminal benefits
+  epfEmployee      Decimal @default(0) @db.Decimal(18, 2) // informational; not deducted
+  otherDeductions  Decimal @default(0) @db.Decimal(18, 2) // informational
+  months           Int     @default(1) // months covered by this entry (12 for an annual entry)
+
+  entry IncomeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+}
+
+model BusinessIncome {
+  entryId               String  @id @db.Uuid
+  clientName            String? @db.VarChar(200)
+  invoiceNumber         String? @db.VarChar(80)
+  isServiceExport       Boolean @default(false)
+  isSpecialRateBusiness Boolean @default(false) // betting/gaming/liquor/tobacco
+
+  entry IncomeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+}
+
+model RentalIncome {
+  entryId      String  @id @db.Uuid
+  propertyName String  @db.VarChar(200)
+  tenantName   String? @db.VarChar(200)
+  months       Int     @default(1)
+
+  entry IncomeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+}
+
+enum InvestmentKind {
+  INTEREST
+  DIVIDEND_RESIDENT_COMPANY
+  DIVIDEND_OTHER
+  OTHER
+}
+
+model InvestmentIncome {
+  entryId      String         @id @db.Uuid
+  kind         InvestmentKind
+  accountRef   String?        @db.VarChar(100)
+  isExempt     Boolean        @default(false)
+  exemptReason String?        @db.VarChar(200)
+
+  entry IncomeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+}
+
+enum CapitalGainExemption {
+  NONE
+  LISTED_SHARES
+  PRINCIPAL_RESIDENCE
+}
+
+model CapitalGain {
+  entryId         String               @id @db.Uuid
+  assetName       String               @db.VarChar(200)
+  acquiredOn      DateTime             @db.Date
+  acquisitionCost Decimal              @db.Decimal(18, 2)
+  disposedOn      DateTime             @db.Date
+  disposalValue   Decimal              @db.Decimal(18, 2)
+  allowableCosts  Decimal              @default(0) @db.Decimal(18, 2)
+  exemption       CapitalGainExemption @default(NONE)
+  taxPaid         Decimal              @default(0) @db.Decimal(18, 2)
+
+  entry IncomeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────────── Expenses & reliefs ─────────────────────────────
+
+enum Deductibility {
+  DEDUCTIBLE
+  PARTIALLY_DEDUCTIBLE
+  NON_DEDUCTIBLE
+  REQUIRES_REVIEW
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+model Expense {
+  id                           String        @id @default(uuid()) @db.Uuid
+  userId                       String        @db.Uuid
+  taxYearId                    String        @db.Uuid
+  incomeSourceId               String?       @db.Uuid
+  incurredOn                   DateTime      @db.Date
+  amount                       Decimal       @db.Decimal(18, 2)
+  category                     String        @db.VarChar(60)
+  description                  String        @db.VarChar(300)
+  paymentMethod                PaymentMethod @default(BANK_TRANSFER)
+  isCapital                    Boolean       @default(false)
+  userConfirmedBusinessPurpose Boolean       @default(false)
+  businessUsePercent           Int           @default(100)
+  // Server-assigned classification and the plain-language reason shown under "Why?".
+  deductibility                Deductibility @default(REQUIRES_REVIEW)
+  deductibleAmount             Decimal       @default(0) @db.Decimal(18, 2)
+  deductibilityReason          String        @db.VarChar(500)
+  notes                        String?
+  createdAt                    DateTime      @default(now())
+  updatedAt                    DateTime      @updatedAt
+  deletedAt                    DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear      TaxYear       @relation(fields: [taxYearId], references: [id])
+  incomeSource IncomeSource? @relation(fields: [incomeSourceId], references: [id])
+  documents    Document[]
+
+  @@index([userId, taxYearId, incurredOn])
+  @@index([userId, taxYearId, category])
+  @@index([incomeSourceId])
+}
+
+enum QualifyingPaymentType {
+  CHARITY_DONATION
+  GOVERNMENT_DONATION
+  SOLAR_PANEL
+  SAMURDHI_SHOP
+}
+
+model QualifyingPayment {
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @db.Uuid
+  taxYearId   String                @db.Uuid
+  type        QualifyingPaymentType
+  paidOn      DateTime              @db.Date
+  amount      Decimal               @db.Decimal(18, 2)
+  recipient   String                @db.VarChar(200)
+  description String?               @db.VarChar(300)
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+  deletedAt   DateTime?
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id])
+
+  @@index([userId, taxYearId])
+}
+
+// ───────────────────────────── Calculations ─────────────────────────────
+
+// Immutable snapshot. `inputs`, `result` and `ruleSnapshot` are the complete record of what
+// was computed and with which rule versions; nothing here is ever recomputed.
+model TaxCalculation {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @db.Uuid
+  taxYearId        String   @db.Uuid
+  isLatest         Boolean  @default(true)
+  engineVersion    String   @db.VarChar(20)
+  assessableIncome Decimal  @db.Decimal(18, 2)
+  taxableIncome    Decimal  @db.Decimal(18, 2)
+  totalTax         Decimal  @db.Decimal(18, 2)
+  totalCredits     Decimal  @db.Decimal(18, 2)
+  balancePayable   Decimal  @db.Decimal(18, 2)
+  inputs           Json
+  result           Json
+  ruleSnapshot     Json
+  inputHash        String   @db.VarChar(64)
+  createdAt        DateTime @default(now())
+
+  user    User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear              @relation(fields: [taxYearId], references: [id])
+  items   TaxCalculationItem[]
+
+  @@index([userId, taxYearId, isLatest])
+  @@index([userId, taxYearId, createdAt])
+}
+
+enum CalculationItemKind {
+  INCOME
+  EXCLUDED
+  RELIEF
+  QUALIFYING_PAYMENT
+  TAX
+  CREDIT
+  TOTAL
+}
+
+model TaxCalculationItem {
+  id            String              @id @default(uuid()) @db.Uuid
+  calculationId String              @db.Uuid
+  position      Int
+  kind          CalculationItemKind
+  code          String              @db.VarChar(60)
+  label         String              @db.VarChar(200)
+  amount        Decimal             @db.Decimal(18, 2)
+  rate          Decimal?            @db.Decimal(7, 4)
+  ruleVersionId String?             @db.Uuid
+
+  calculation TaxCalculation @relation(fields: [calculationId], references: [id], onDelete: Cascade)
+
+  @@index([calculationId, position])
+}
+
+// ───────────────────────────── Payments ─────────────────────────────
+
+enum TaxPaymentType {
+  INSTALMENT
+  FINAL_PAYMENT
+  CAPITAL_GAINS_TAX
+  APIT
+  WITHHOLDING
+  OTHER
+}
+
+// Payments the taxpayer made (or had made) to IRD that are not already captured as
+// withholding on an income entry.
+model TaxPayment {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @db.Uuid
+  taxYearId    String         @db.Uuid
+  type         TaxPaymentType
+  paidOn       DateTime       @db.Date
+  amount       Decimal        @db.Decimal(18, 2)
+  reference    String?        @db.VarChar(100)
+  bank         String?        @db.VarChar(120)
+  instalmentNo Int?
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear   TaxYear    @relation(fields: [taxYearId], references: [id])
+  documents Document[]
+
+  @@index([userId, taxYearId, paidOn])
+}
+
+// The user's instalment schedule for a year (what is due), reconciled against TaxPayment.
+model TaxInstalment {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  taxYearId    String   @db.Uuid
+  instalmentNo Int // 1-4, 0 = final payment
+  dueOn        DateTime @db.Date
+  amountDue    Decimal  @db.Decimal(18, 2)
+  basis        String   @db.VarChar(40) // PRIOR_YEAR | CURRENT_ESTIMATE
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear TaxYear @relation(fields: [taxYearId], references: [id])
+
+  @@unique([userId, taxYearId, instalmentNo])
+}
+
+enum CertificateType {
+  APIT_T10
+  AIT_WHT
+  DIVIDEND_WHT
+  OTHER
+}
+
+model TaxCertificate {
+  id             String          @id @default(uuid()) @db.Uuid
+  userId         String          @db.Uuid
+  taxYearId      String          @db.Uuid
+  incomeSourceId String?         @db.Uuid
+  documentId     String?         @unique @db.Uuid
+  type           CertificateType
+  issuer         String          @db.VarChar(200)
+  certificateNo  String?         @db.VarChar(80)
+  grossAmount    Decimal         @db.Decimal(18, 2)
+  taxDeducted    Decimal         @db.Decimal(18, 2)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear      TaxYear       @relation(fields: [taxYearId], references: [id])
+  incomeSource IncomeSource? @relation(fields: [incomeSourceId], references: [id])
+  document     Document?     @relation(fields: [documentId], references: [id])
+
+  @@index([userId, taxYearId])
+}
+
+// ───────────────────────────── Documents ─────────────────────────────
+
+enum DocumentCategory {
+  PAYSLIP
+  TAX_CERTIFICATE
+  APIT_DOCUMENT
+  BANK_STATEMENT
+  RECEIPT
+  INVOICE
+  RENTAL_DOCUMENT
+  INVESTMENT_STATEMENT
+  TAX_RETURN
+  PAYMENT_PROOF
+  OTHER
+}
+
+enum OcrStatus {
+  NOT_REQUESTED
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model Document {
+  id             String           @id @default(uuid()) @db.Uuid
+  userId         String           @db.Uuid
+  taxYearId      String?          @db.Uuid
+  incomeSourceId String?          @db.Uuid
+  incomeEntryId  String?          @db.Uuid
+  expenseId      String?          @db.Uuid
+  paymentId      String?          @db.Uuid
+  category       DocumentCategory
+  title          String           @db.VarChar(200)
+  originalName   String           @db.VarChar(255)
+  mimeType       String           @db.VarChar(100)
+  sizeBytes      Int
+  storageKey     String           @unique @db.VarChar(300) // opaque key in private storage
+  sha256         String           @db.VarChar(64)
+  // Receipt scanning is future work; these columns hold a provider's result when one exists.
+  ocrStatus      OcrStatus        @default(NOT_REQUESTED)
+  ocrResult      Json?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  deletedAt      DateTime?
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear      TaxYear?        @relation(fields: [taxYearId], references: [id])
+  incomeSource IncomeSource?   @relation(fields: [incomeSourceId], references: [id])
+  incomeEntry  IncomeEntry?    @relation(fields: [incomeEntryId], references: [id])
+  expense      Expense?        @relation(fields: [expenseId], references: [id])
+  payment      TaxPayment?     @relation(fields: [paymentId], references: [id])
+  certificate  TaxCertificate?
+
+  @@index([userId, taxYearId, category])
+  @@index([expenseId])
+}
+
+// ───────────────────────────── Return preparation ─────────────────────────────
+
+model TaxReturn {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  taxYearId     String   @db.Uuid
+  calculationId String?  @db.Uuid // calculation the summary was generated from
+  currentStep   Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taxYear     TaxYear               @relation(fields: [taxYearId], references: [id])
+  sections    TaxReturnSection[]
+  submissions TaxReturnSubmission[]
+
+  @@unique([userId, taxYearId])
+}
+
+enum ReturnSectionKey {
+  TAXPAYER_DETAILS
+  INCOME
+  DEDUCTIONS
+  RELIEFS
+  CALCULATION
+  PAYMENTS
+  VALIDATION
+  SUMMARY
+}
+
+model TaxReturnSection {
+  id          String           @id @default(uuid()) @db.Uuid
+  taxReturnId String           @db.Uuid
+  key         ReturnSectionKey
+  reviewedAt  DateTime?
+  issues      Json? // validation findings at the time of review
+
+  taxReturn TaxReturn @relation(fields: [taxReturnId], references: [id], onDelete: Cascade)
+
+  @@unique([taxReturnId, key])
+}
+
+// A record the USER makes that they filed with IRD themselves. The app never files returns.
+model TaxReturnSubmission {
+  id                String   @id @default(uuid()) @db.Uuid
+  taxReturnId       String   @db.Uuid
+  filedOn           DateTime @db.Date
+  acknowledgementNo String?  @db.VarChar(80)
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  taxReturn TaxReturn @relation(fields: [taxReturnId], references: [id], onDelete: Cascade)
+
+  @@index([taxReturnId])
+}
+
+// ───────────────────────────── Notifications ─────────────────────────────
+
+enum NotificationType {
+  DEADLINE_APPROACHING
+  PAYMENT_DUE
+  MISSING_DOCUMENT
+  CALCULATION_CHANGED
+  NEW_TAX_YEAR
+  TAX_RULE_UPDATED
+  SECURITY
+}
+
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(200)
+  body      String           @db.VarChar(600)
+  href      String?          @db.VarChar(300)
+  dedupeKey String?          @db.VarChar(200)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+}
+
+enum ReminderChannel {
+  IN_APP
+  EMAIL
+}
+
+model Reminder {
+  id         String          @id @default(uuid()) @db.Uuid
+  userId     String          @db.Uuid
+  deadlineId String          @db.Uuid
+  channel    ReminderChannel
+  daysBefore Int
+  sentAt     DateTime?
+  createdAt  DateTime        @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deadlineId, channel, daysBefore])
+}
+
+// ───────────────────────────── Audit ─────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  action    String   @db.VarChar(80) // "income.create", "auth.login", "taxrule.activate"
+  entity    String?  @db.VarChar(60)
+  entityId  String?  @db.VarChar(60)
+  before    Json?
+  after     Json?
+  ipAddress String?  @db.VarChar(64)
+  userAgent String?  @db.VarChar(400)
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+  @@index([action, createdAt])
+}

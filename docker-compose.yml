@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: personal-tax-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taxapp
+      POSTGRES_PASSWORD: taxapp_dev_only
+      POSTGRES_DB: taxapp
+    ports:
+      - "5433:5432"
+    volumes:
+      - taxapp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taxapp -d taxapp"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  taxapp_pgdata:
