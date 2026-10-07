@@ -37,6 +37,24 @@ export function formatShortDate(date: Date | string): string {
   return shortDateFormat.format(typeof date === "string" ? new Date(date) : date);
 }
 
+const monthFormat = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+
+/** "Jun 2025", for records that cover a whole month. */
+export function formatMonth(date: Date | string): string {
+  return monthFormat.format(typeof date === "string" ? new Date(date) : date);
+}
+
+/** The first day of each of the twelve months starting at `startISO`, as YYYY-MM-DD. */
+export function monthsFrom(startISO: string): string[] {
+  const start = parseISODate(startISO);
+  return Array.from({ length: 12 }, (_, i) => toISODate(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1))));
+}
+
+/** The first day of the month a date falls in. */
+export function firstOfMonth(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
 /** YYYY-MM-DD for a date stored as a UTC calendar date. */
 export function toISODate(date: Date): string {
   return date.toISOString().slice(0, 10);

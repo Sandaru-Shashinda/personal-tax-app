@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Download, Paperclip, Receipt } from "lucide-react";
+import { CircleCheck, CircleDashed, CircleHelp, CircleSlash, Download, Paperclip, Receipt, Upload } from "lucide-react";
+import Link from "next/link";
 import { deleteExpenseAction, deleteQualifyingPaymentAction } from "@/app/actions/records";
 import { ExpenseForm, QualifyingPaymentForm } from "@/components/expenses/expense-forms";
 import { Disclaimer } from "@/components/shared/disclaimer";
@@ -11,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/session";
-import { formatDate, formatLKR } from "@/lib/format";
+import { formatDate, formatLKR, formatMonth } from "@/lib/format";
 import { explainReason } from "@/lib/tax/expense-classifier";
 import { findRule, toRuleUse } from "@/lib/tax/rule-set";
 import { resolveTaxYear } from "@/lib/tax-year";
@@ -68,6 +69,11 @@ export default async function ExpensesPage({ searchParams }: PageProps<"/expense
             <Download aria-hidden /> {t("CSV")}
           </a>
         </Button>
+        <Button asChild variant="outline">
+          <Link href="/import">
+            <Upload aria-hidden /> {t("Import")}
+          </Link>
+        </Button>
         <QualifyingPaymentForm taxYear={taxYear} />
         <ExpenseForm taxYear={taxYear} sources={sources} />
       </PageHeader>
@@ -107,9 +113,10 @@ export default async function ExpensesPage({ searchParams }: PageProps<"/expense
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <p className="truncate font-medium">{expense.description}</p>
                         <Badge variant="secondary">{t(expense.category)}</Badge>
+                        {expense.period === "MONTHLY" && <Badge variant="outline">{t("Monthly total")}</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {formatDate(expense.incurredOn)} · {expense.incomeSourceName ?? t("Personal")}
+                        {expense.period === "MONTHLY" ? formatMonth(expense.incurredOn) : formatDate(expense.incurredOn)} · {expense.incomeSourceName ?? t("Personal")}
                       </p>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                         <span className={`inline-flex items-center gap-1 font-medium ${status.className}`}>

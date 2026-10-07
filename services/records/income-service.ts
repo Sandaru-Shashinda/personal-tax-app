@@ -3,7 +3,7 @@ import type { IncomeType, Prisma } from "@prisma/client";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { AppError, notFound } from "@/lib/errors";
-import { parseISODate, toISODate } from "@/lib/format";
+import { firstOfMonth, parseISODate, toISODate } from "@/lib/format";
 import { round2 } from "@/lib/tax/money";
 import type { IncomeEntryInput } from "@/lib/validation/records";
 import { getTaxYear, type TaxYearInfo } from "@/services/tax/rule-repository";
@@ -123,7 +123,7 @@ export async function listIncomeSources(userId: string) {
   return sources;
 }
 
-function assertDateInYear(date: string, taxYear: TaxYearInfo, field: string) {
+export function assertDateInYear(date: string, taxYear: TaxYearInfo, field: string) {
   if (date < taxYear.startsOn || date > taxYear.endsOn) {
     throw new AppError("Please check the highlighted fields.", 422, {
       [field]: [`This date is outside the ${taxYear.code} year of assessment (1 April – 31 March).`],
@@ -156,7 +156,7 @@ function amounts(input: IncomeEntryInput): { gross: number; withheld: number } {
   return { gross: input.grossAmount, withheld: input.withholdingTax };
 }
 
-async function resolveSource(tx: Prisma.TransactionClient, userId: string, input: IncomeEntryInput): Promise<string> {
+export async function resolveSource(tx: Prisma.TransactionClient, userId: string, input: IncomeEntryInput): Promise<string> {
   if (input.sourceId) {
     const source = await tx.incomeSource.findFirst({ where: { id: input.sourceId, userId, deletedAt: null } });
     if (!source) throw notFound("income source");
@@ -259,14 +259,19 @@ function detailData(input: IncomeEntryInput) {
   }
 }
 
-function entryData(input: IncomeEntryInput, taxYear: TaxYearInfo) {
+const isBusinessInput = (input: IncomeEntryInput) => input.type === "FREELANCE" || input.type === "BUSINESS" || input.type === "PROFESSIONAL";
+
+export function entryData(input: IncomeEntryInput, taxYear: TaxYearInfo) {
   const { gross, withheld } = amounts(input);
   const foreign = input.currency !== "LKR";
+  // A business month's total is dated the first of its month, like other monthly entries.
+  const monthTotal = isBusinessInput(input) && "period" in input && input.period === "MONTHLY";
   return {
     taxYearId: taxYear.id,
     type: input.type,
-    period: input.type === "SALARY" ? input.period : input.type === "RENTAL" && input.months > 1 ? ("MONTHLY" as const) : ("ONE_OFF" as const),
-    receivedOn: parseISODate(input.receivedOn),
+    period:
+      input.type === "SALARY" ? input.period : monthTotal || (input.type === "RENTAL" && input.months > 1) ? ("MONTHLY" as const) : ("ONE_OFF" as const),
+    receivedOn: parseISODate(monthTotal ? firstOfMonth(input.receivedOn) : input.receivedOn),
     description: input.description,
     grossAmount: gross,
     withholdingTax: withheld,

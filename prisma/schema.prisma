@@ -437,7 +437,7 @@ model IncomeEntry {
   sourceId           String      @db.Uuid
   type               IncomeType
   period             EntryPeriod @default(ONE_OFF)
-  receivedOn         DateTime    @db.Date // cash-basis date; first day of month for MONTHLY
+  receivedOn         DateTime    @db.Date // cash-basis date; first day of month for MONTHLY (salary/rent figures, or a business month's total)
   description        String?     @db.VarChar(300)
   grossAmount        Decimal     @db.Decimal(18, 2) // LKR
   withholdingTax     Decimal     @default(0) @db.Decimal(18, 2) // APIT / AIT / WHT deducted at source, LKR
@@ -563,6 +563,8 @@ model Expense {
   userId                       String        @db.Uuid
   taxYearId                    String        @db.Uuid
   incomeSourceId               String?       @db.Uuid
+  // MONTHLY = one total for many payments in a month; incurredOn is then the first day of it.
+  period                       EntryPeriod   @default(ONE_OFF)
   incurredOn                   DateTime      @db.Date
   amount                       Decimal       @db.Decimal(18, 2)
   category                     String        @db.VarChar(60)

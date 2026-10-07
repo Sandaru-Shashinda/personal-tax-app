@@ -8,7 +8,7 @@ import { RecordDialog } from "@/components/shared/record-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { todayInSriLanka } from "@/lib/format";
+import { firstOfMonth, formatMonth, monthsFrom, todayInSriLanka } from "@/lib/format";
 import { EXPENSE_CATEGORIES, expenseSchema, QP_LABELS, qualifyingPaymentSchema } from "@/lib/validation/records";
 import type { ExpenseDTO } from "@/services/records/expense-service";
 import { useT } from "@/lib/i18n/client";
@@ -28,6 +28,8 @@ export function ExpenseForm({ taxYear, sources, expense }: YearProps & { sources
   const max = latestDate(taxYear);
   const form = useForm<FieldValues>({
     defaultValues: {
+      period: expense?.period === "MONTHLY" ? "MONTHLY" : "ONE_OFF",
+      incurredMonth: firstOfMonth(expense?.incurredOn ?? (max >= taxYear.startsOn ? max : taxYear.startsOn)),
       incurredOn: expense?.incurredOn ?? (max >= taxYear.startsOn ? max : taxYear.startsOn),
       amount: expense?.amount ?? "",
       category: expense?.category ?? EXPENSE_CATEGORIES[0],
@@ -43,6 +45,8 @@ export function ExpenseForm({ taxYear, sources, expense }: YearProps & { sources
   const { register, watch, formState } = form;
   const err = (name: string) => fieldError(formState.errors as Record<string, unknown>, name);
   const linked = Boolean(watch("incomeSourceId"));
+  // Many small payments in a month can be recorded as one total per category.
+  const monthTotal = watch("period") === "MONTHLY";
 
   return (
     <RecordDialog
@@ -61,15 +65,39 @@ export function ExpenseForm({ taxYear, sources, expense }: YearProps & { sources
       description={t("Record what you spent. Whether it reduces your tax is worked out from the details below, and you can see why.")}
       form={form}
       schema={expenseSchema}
-      prepare={(values) => ({ ...values, taxYear: taxYear.code })}
+      prepare={(values) => ({ ...values, taxYear: taxYear.code, ...(values.period === "MONTHLY" && { incurredOn: values.incurredMonth }) })}
       action={(data) => saveExpenseAction(expense?.id ?? null, data)}
       submitLabel={expense ? t("Save changes") : t("Add expense")}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("Date")} error={err("incurredOn")}>
-          {(p) => <Input type="date" min={taxYear.startsOn} max={max} {...p} {...register("incurredOn")} />}
+        <Field label={t("Entered as")} error={err("period")} className="sm:col-span-2">
+          {(p) => (
+            <select className={nativeSelectClass} {...p} {...register("period")}>
+              <option value="ONE_OFF">{t("Single expense")}</option>
+              <option value="MONTHLY">{t("Monthly total")}</option>
+            </select>
+          )}
         </Field>
-        <Field label={t("Amount")} error={err("amount")}>
+        {monthTotal ? (
+          <Field label={t("Month")} error={err("incurredOn")}>
+            {(p) => (
+              <select className={nativeSelectClass} {...p} {...register("incurredMonth")}>
+                {monthsFrom(taxYear.startsOn)
+                  .filter((month) => month <= max)
+                  .map((month) => (
+                    <option key={month} value={month}>
+                      {formatMonth(month)}
+                    </option>
+                  ))}
+              </select>
+            )}
+          </Field>
+        ) : (
+          <Field label={t("Date")} error={err("incurredOn")}>
+            {(p) => <Input type="date" min={taxYear.startsOn} max={max} {...p} {...register("incurredOn")} />}
+          </Field>
+        )}
+        <Field label={monthTotal ? t("Total for the month") : t("Amount")} error={err("amount")}>
           {(p) => <Input inputMode="decimal" placeholder="0.00" className="tabular" {...p} {...register("amount")} />}
         </Field>
         <Field label={t("Category")} error={err("category")}>
@@ -129,6 +157,7 @@ export function ExpenseForm({ taxYear, sources, expense }: YearProps & { sources
           </Field>
         </fieldset>
       )}
+      {monthTotal && <p className="text-xs text-muted-foreground">{t("Keep the bills, receipts or statements behind this total. The tax office can ask for them, and you can store them under Documents.")}</p>}
       <Field label={t("Notes")} error={err("notes")} optional>
         {(p) => <Textarea rows={2} {...p} {...register("notes")} />}
       </Field>

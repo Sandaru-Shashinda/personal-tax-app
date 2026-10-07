@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Download, Paperclip, Wallet } from "lucide-react";
+import { Download, Paperclip, Upload, Wallet } from "lucide-react";
+import Link from "next/link";
 import { deleteIncomeAction } from "@/app/actions/records";
 import { IncomeForm } from "@/components/income/income-form";
 import { FilterBar } from "@/components/shared/filters";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { requireUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { formatDate, formatForeign, formatLKR } from "@/lib/format";
+import { formatDate, formatForeign, formatLKR, formatMonth } from "@/lib/format";
 import { resolveTaxYear } from "@/lib/tax-year";
 import { INCOME_TYPES, INCOME_TYPE_LABELS, type IncomeTypeValue } from "@/lib/validation/records";
 import { listIncome, listIncomeSources } from "@/services/records/income-service";
@@ -51,6 +52,11 @@ export default async function IncomePage({ searchParams }: PageProps<"/income">)
             <Download aria-hidden /> {t("CSV")}
           </a>
         </Button>
+        <Button asChild variant="outline">
+          <Link href="/import">
+            <Upload aria-hidden /> {t("Import")}
+          </Link>
+        </Button>
         <IncomeForm taxYear={taxYear} sources={sources} preferredType={preferred} defaultOpen={Boolean(one(params.new))} />
       </PageHeader>
 
@@ -85,10 +91,11 @@ export default async function IncomePage({ searchParams }: PageProps<"/income">)
                       <Badge variant="secondary">{t(INCOME_TYPE_LABELS[entry.type])}</Badge>
                       {entry.remittedViaBank && <Badge variant="outline">{t("Foreign currency, remitted")}</Badge>}
                       {entry.investment?.isExempt && <Badge variant="outline">{t("Exempt")}</Badge>}
+                      {entry.business && entry.period === "MONTHLY" && <Badge variant="outline">{t("Monthly total")}</Badge>}
                     </div>
                     <p className="truncate text-sm text-muted-foreground">
-                      {formatDate(entry.receivedOn)}
-                      {entry.period === "MONTHLY" && ` · ${t("{count} months", { count: entry.salary?.months ?? entry.rental?.months ?? 1 })}`}
+                      {entry.business && entry.period === "MONTHLY" ? formatMonth(entry.receivedOn) : formatDate(entry.receivedOn)}
+                      {entry.period === "MONTHLY" && !entry.business && ` · ${t("{count} months", { count: entry.salary?.months ?? entry.rental?.months ?? 1 })}`}
                       {entry.description && ` · ${entry.description}`}
                       {entry.currency !== "LKR" && entry.originalAmount !== null && ` · ${t("{amount} at {rate} ({source})", { amount: formatForeign(entry.originalAmount, entry.currency), rate: String(entry.exchangeRate), source: entry.exchangeRateSource ?? "" })}`}
                     </p>

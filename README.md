@@ -45,9 +45,11 @@ npm run build
 ```
 
 - **Unit** (`tests/unit`): the tax engine, including the six worked examples from IRD's own
-  Guide to the individual return for 2025/2026, reproduced to the rupee.
+  Guide to the individual return for 2025/2026, reproduced to the rupee; the CSV statement
+  reader; and the translation catalogs.
 - **Integration** (`tests/integration`): the real services against PostgreSQL — authentication,
-  2FA, CRUD, ownership isolation between two users, documents, exports, rule versioning.
+  2FA, CRUD, ownership isolation between two users, documents, exports, rule versioning,
+  monthly totals and statement import.
 - **End-to-end** (`tests/e2e`): register → onboard → income and APIT → calculation and "Why?" →
   payment → expense → document upload → report export → sign out → delete account.
 
@@ -59,6 +61,7 @@ components/     UI. No business rules and no tax figures.
 services/       use-cases: every function takes the signed-in user's id and scopes each query by it
 lib/tax/        the tax engine — pure functions, no database, no framework
 lib/tax/data/   seed definitions of rules, sources and deadlines (the database is the runtime source)
+lib/import/     reading a CSV statement into dated amounts — pure functions that run in the browser
 lib/auth/       sessions, password hashing, TOTP, rate limiting
 lib/validation/ Zod schemas shared by browser and server
 lib/integrations/ interfaces for things not built yet (OCR, AI assistant); see its README
@@ -77,6 +80,16 @@ results side by side, then activates it. A version that starts mid-year leaves t
 one in force for the earlier period — this is how 2026/2027 holds a 10% capital gains rate to
 2 June 2026 and 15% from 3 June. Every `TaxCalculation` stores a snapshot of its inputs,
 result and the rule versions used, so earlier calculations never change.
+
+**Many transactions.** Someone with dozens of sales and payments a day does not type each one.
+Business income and expenses can be entered as a **monthly total** (`period = MONTHLY`, dated the
+first of the month), and `/import` reads a bank, card or sales statement saved as CSV. The file
+is parsed in the browser; the user matches the columns, reviews every row and its guessed
+category, and saves either one record per transaction or monthly totals.
+`services/records/import-service.ts` writes the rows in one transaction with one
+recalculation, and skips rows identical to a record that already exists. The limit on single
+cash payments (TAX_RULES.md §7) is not applied to a monthly total, and the reason shown on the
+record says so.
 
 **"Why?"** Each line of a calculation carries a plain-language reason and the id of the rule
 version behind it. The UI shows the reason, the rule, its tax year, its source and when it was
@@ -117,6 +130,8 @@ Stated plainly so nothing is mistaken for working:
 - **Receipt OCR, AI assistant, bank feeds, SMS/WhatsApp, payment gateway, IRD integration.**
   Interfaces or notes exist in `lib/integrations/`; no provider is implemented and nothing is
   simulated.
+- **Statement import beyond CSV.** PDF and Excel statements are not read, and money in is
+  imported only as business income.
 - **OAuth sign-in.**
 - **Scheduled jobs.** Reminders are raised when a user opens the app. A cron calling
   `syncDeadlineReminders` for each user is needed for reminders to reach people who do not.

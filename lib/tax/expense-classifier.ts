@@ -15,6 +15,8 @@ export interface ExpenseFacts {
   userConfirmedBusinessPurpose: boolean;
   /** 1–100. Share of the cost that relates to the business. */
   businessUsePercent: number;
+  /** A total of many payments (a month's worth), so per-payment rules cannot be checked on it. */
+  isSummary?: boolean;
 }
 
 export interface ExpenseClassification {
@@ -57,7 +59,8 @@ export function classifyExpense(facts: ExpenseFacts, cashPaymentLimit: number): 
       msg("Not deducted as an expense because it is capital in nature. Capital allowances may be available over several years; they are not calculated here."),
     );
   }
-  if (facts.paymentMethod === "CASH" && facts.amount >= cashPaymentLimit) {
+  const largeCash = facts.paymentMethod === "CASH" && facts.amount >= cashPaymentLimit;
+  if (largeCash && !facts.isSummary) {
     return none(
       "NON_DEDUCTIBLE",
       `Not deductible: a payment of Rs. ${cashPaymentLimit.toLocaleString("en-LK")} or more made in cash cannot be deducted. Payments by cheque, bank transfer or card are not affected.`,
@@ -68,6 +71,14 @@ export function classifyExpense(facts: ExpenseFacts, cashPaymentLimit: number): 
       "REQUIRES_REVIEW",
       msg("Not yet deducted. Confirm that this cost was incurred in producing the linked business income, and is not personal, before it is treated as deductible."),
     );
+  }
+  if (largeCash) {
+    // The limit applies to each payment, and a total does not say how large any one of them was.
+    return {
+      deductibility: facts.businessUsePercent < 100 ? "PARTIALLY_DEDUCTIBLE" : "DEDUCTIBLE",
+      deductibleAmount: round2((facts.amount * facts.businessUsePercent) / 100),
+      reason: msg("Treated as deductible on your confirmation. This is a total of several cash payments, so the rule against deducting a large single cash payment could not be checked. Leave any such payment out of the total and record it on its own."),
+    };
   }
   if (facts.businessUsePercent < 100) {
     return {
@@ -88,9 +99,9 @@ export function classifyExpense(facts: ExpenseFacts, cashPaymentLimit: number): 
  * that carry a figure are recognised here so the figure can be placed in the translated sentence.
  */
 export function explainReason(reason: string, t: Translate): string {
-  const cash = reason.match(/^Not deductible: a payment of (Rs. [d,]+) or more made in cash/);
+  const cash = reason.match(/^Not deductible: a payment of (Rs\. [\d,]+) or more made in cash/);
   if (cash) return t("Not deductible: a payment of {amount} or more made in cash cannot be deducted. Payments by cheque, bank transfer or card are not affected.", { amount: cash[1] });
-  const share = reason.match(/^(d+)% treated as deductible/);
+  const share = reason.match(/^(\d+)% treated as deductible/);
   if (share) return t("{percent}% treated as deductible, the share you stated relates to the business. The private share is not deductible.", { percent: share[1] });
   return t(reason);
 }

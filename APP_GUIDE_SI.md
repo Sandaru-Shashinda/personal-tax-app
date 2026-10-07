@@ -376,6 +376,8 @@ Exempt/excluded income එකක tax කපා ඇත්නම් app එක එ
 
 **සරල නීතිය:** expenses deduct කළ හැක්කේ **business, freelance, professional** income වලින් පමණි.
 
+**Monthly total (මාසික එකතුව):** දවසකට ගෙවීම් ගොඩක් ඇති අයට එක් එක් ගෙවීම වෙනුවට, මාසයකට category එකකට **එක එකතුවක්** enter කළ හැක. Rs. 500,000 cash නීතිය බලපාන්නේ **තනි ගෙවීමකට** ය; එකතුවකින් තනි ගෙවීමක ප්‍රමාණය නොපෙනෙන නිසා, cash වලින් ගෙවූ monthly total එකකට app එක ඒ නීතිය **apply නොකරයි** — ඔබ confirm කළ විට deductible ලෙස සලකා, "මෙම නීතිය check කළ නොහැකි විය" යැයි හේතුවේ පෙන්වයි. Rs. 500,000 හෝ ඊට වැඩි තනි cash ගෙවීමක් තිබේ නම් එය එකතුවෙන් ඉවත් කර **වෙනම** record කරන්න. එකතුවට අදාළ bills, receipts, statements **තබා ගන්න** — IRD එකට ඒවා ඉල්ලිය හැක.
+
 ---
 
 ## 10. Deadlines සහ instalments
@@ -542,6 +544,8 @@ URLs සම්පූර්ණ ලැයිස්තුව: [TAX_RULES.md](TAX_RU
 - Entry period: `MONTHLY`, `ANNUAL`, `ONE_OFF`
 - **Salary:** basic, allowances, bonuses, overtime, benefits, terminal benefits, EPF (information), APIT
 - **Business:** client name, invoice number, service export ද, special-rate business ද
+- **Business / Freelance / Professional — "Monthly total":** විකුණුම් ගොඩක් ඇති විට එක් එක් receipt එක වෙනුවට මාසයට **එක එකතුවක්** (මාසය + මුළු ගණන). List එකේ "Monthly total" badge එකක් සහ දිනය වෙනුවට මාසය පෙන්වයි
+- **Import** button — bank / sales statement එකකින් එකවර ගෙන ඒම (16.15)
 - **Rental:** property name, tenant, months
 - **Investment:** interest / dividend / other; exempt ද සහ හේතුව
 - **Capital gain:** asset name, acquired/disposed dates, cost, disposal value, allowable costs, exemption type, tax paid
@@ -554,6 +558,8 @@ URLs සම්පූර්ණ ලැයිස්තුව: [TAX_RULES.md](TAX_RU
 - **ස්වයංක්‍රීය deductibility classification** + හේතුව (9 වන කොටස)
 - **Qualifying payments** (charity, government donation, solar panel, Samurdhi shop) record කිරීම
 - "Requires review" expenses filter කිරීම
+- **"Monthly total":** මාසයකට category එකකට එක එකතුවක් ලෙස enter කිරීම (9 වන කොටසේ cash නීතිය ගැන සටහන බලන්න)
+- **Import** button — statement එකකින් එකවර ගෙන ඒම (16.15)
 
 ### 16.6 Tax (calculation)
 - සම්පූර්ණ **tax statement** එක: income → excluded income → reliefs → qualifying payments → taxable income → tax lines → credits → balance payable
@@ -637,6 +643,23 @@ Record-keeping checklist එකක් — **legal/compliance score එකක් 
 - **Tax year switcher** — වසර අතර මාරු වීම
 - **Mobile-friendly** — phone වල bottom navigation
 - සෑම තැනකම **disclaimer** එක
+
+### 16.15 Statement import (`/import`)
+දවසකට ගනුදෙනු ගොඩක් ඇති අයට — එකින් එක type කරනවා වෙනුවට bank, card හෝ sales (POS) statement එකක් **CSV file** එකක් ලෙස ගෙන ඒම. Income සහ Expenses pages වල **Import** button එකෙන් යා හැක.
+
+1. **File එක තෝරන්න** — CSV පමණි (10 MB දක්වා). File එක කියවන්නේ **ඔබේ browser එක තුළම** ය; server එකට යන්නේ ඔබ තෝරන rows පමණි.
+2. **Columns ගළපන්න** — date, description, amount (එක column එකක් හෝ money out / money in වෙන වෙනම), date format (day first / month first / year first). Header names වලින් app එක මුලින් අනුමාන කරයි.
+3. **Save කරන ආකාරය** — *One record for each transaction* හෝ *Monthly totals* (මාසයකට category එකකට එක expense එකතුවක්, මාසයකට එක income එකතුවක්). Expenses සඳහා payment method, related income source, business purpose confirm කිරීම; income සඳහා type (Business / Freelancing / Professional) සහ source නම.
+4. **Rows check කරන්න** — record නොකළ යුතු දේ untick කරන්න; expense category එක (wording එකෙන් අනුමාන කළ) වෙනස් කරන්න. Category එකක් වෙනස් කළ විට එම description එකම ඇති අනෙක් rows ද වෙනස් වේ.
+
+දැනගත යුතු දේ:
+- **Money in** import වන්නේ **business income** ලෙස පමණි, එක source එකකට. Transfers, loans, refunds, salary **ඔබම untick කළ යුතුය**.
+- "Personal" ලෙස categorise කළ rows කිසිදා business එකට link නොවේ, deduct නොවේ.
+- දැනටමත් ඇති record එකකට **හරියටම සමාන** rows (date, amount, description) skip වේ — එකම statement එක දෙවරක් import කළත් දෙවරක් ගණන් නොවේ. *Monthly totals* ලෙස save කරන විට overlap වන statements වල එකතු වෙනස් නිසා මෙය අල්ලා නොගනී — එක් statement එකක් **එක වරක් පමණක්** import කරන්න.
+- Tax year එකෙන් පිටත දින ඇති හෝ date/amount කියවිය නොහැකි rows ඉවත් කර, ගණන පෙන්වයි.
+- එක import එකකට records **2,000** දක්වා; ඊට වැඩි නම් monthly totals භාවිත කරන්න, නැත්නම් statement එක කොටස් වලට බෙදන්න.
+- PDF / Excel statements කියවන්නේ **නැත**.
+- Statement එකෙන් පෙනෙන්නේ ගිණුම හරහා ගිය මුදල් මිස හේතුව නොවේ — statement එක සහ receipts **තබා ගන්න**.
 
 ---
 
@@ -738,7 +761,8 @@ IRD Guide (S4, pp. 39–49) හි **worked examples 6ම** engine tests ලෙ�
 | Email delivery | Verification/reset links සහ reminders server log එකට print වේ පමණි |
 | Receipt OCR | Interface එක පමණි |
 | AI tax assistant | Interface එක පමණි; model එකක් call නොකරයි |
-| Bank feeds, exchange rates | නැත — user අතින් enter කරයි |
+| Bank feeds, exchange rates | නැත — user අතින් enter කරයි, නැත්නම් statement එක CSV ලෙස import කරයි (16.15) |
+| PDF / Excel statement import | නැත — CSV පමණි |
 | SMS / WhatsApp reminders | නැත |
 | Payment gateway | නැත |
 | OAuth sign-in (Google ආදිය) | නැත |

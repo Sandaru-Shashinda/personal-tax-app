@@ -719,4 +719,11 @@ export const server: Catalog = {
   "1.5% per month or part of a month on the late amount.": "ප්‍රමාද වූ මුදල මත මසකට හෝ මසක කොටසකට 1.5%.",
   "False or misleading statement": "අසත්‍ය හෝ නොමඟ යවන ප්‍රකාශයක්",
   "Greater of Rs. 50,000 and the tax understated.": "රු. 50,000 සහ අඩුවෙන් ප්‍රකාශ කළ බද්ද යන දෙකෙන් වැඩි අගය.",
+  "Import": "ආයාත කරන්න",
+  "Import a statement": "ප්‍රකාශයක් ආයාත කරන්න",
+  "Bring in the transactions of {year} from a bank, card or sales statement instead of typing them. You check every row before anything is saved.": "{year} වර්ෂයේ ගනුදෙනු එකින් එක ටයිප් කරනවා වෙනුවට බැංකු, කාඩ්පත් හෝ විකුණුම් ප්‍රකාශයකින් ගෙන එන්න. කිසිවක් සුරැකීමට පෙර ඔබ සෑම පේළියක්ම පරීක්ෂා කරයි.",
+  "A statement shows what moved through an account, not why. Keep the statement and the receipts behind it; the tax office can ask for them.": "ප්‍රකාශයකින් පෙන්වන්නේ ගිණුමක් හරහා ගමන් කළ මුදල් මිස ඊට හේතුව නොවේ. ප්‍රකාශය සහ ඊට අදාළ රිසිට්පත් තබා ගන්න; බදු කාර්යාලයට ඒවා ඉල්ලා සිටිය හැක.",
+  "We couldn't import these rows. Please try again.": "මෙම පේළි ආයාත කළ නොහැකි විය. කරුණාකර නැවත උත්සාහ කරන්න.",
+  "Treated as deductible on your confirmation. This is a total of several cash payments, so the rule against deducting a large single cash payment could not be checked. Leave any such payment out of the total and record it on its own.": "ඔබේ තහවුරු කිරීම මත අඩු කළ හැකි ලෙස සලකා ඇත. මෙය මුදල් ගෙවීම් කිහිපයක එකතුවක් බැවින්, විශාල තනි මුදල් ගෙවීමක් අඩු කිරීමට එරෙහි රීතිය පරීක්ෂා කළ නොහැකි විය. එවැනි ගෙවීමක් එකතුවෙන් ඉවත් කර එය වෙනම සටහන් කරන්න.",
+  "Some rows are dated outside this year of assessment.": "සමහර පේළිවල දින මෙම තක්සේරු වර්ෂයෙන් පිටත වේ.",
 };

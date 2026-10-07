@@ -7,10 +7,11 @@ import { authenticate } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/errors";
 import { TAX_YEAR_COOKIE } from "@/lib/tax-year";
 import { taxYearCode, uuid } from "@/lib/validation/common";
-import { expenseSchema, incomeEntrySchema, paymentSchema, qualifyingPaymentSchema } from "@/lib/validation/records";
+import { expenseSchema, importSchema, incomeEntrySchema, paymentSchema, qualifyingPaymentSchema } from "@/lib/validation/records";
 import { deleteDocument } from "@/services/documents/document-service";
 import { markAllNotificationsRead, markNotificationRead } from "@/services/notifications/notification-service";
 import * as expenses from "@/services/records/expense-service";
+import { importRecords } from "@/services/records/import-service";
 import * as income from "@/services/records/income-service";
 import * as payments from "@/services/records/payment-service";
 import { getTaxYear } from "@/services/tax/rule-repository";
@@ -82,6 +83,15 @@ export async function deleteExpenseAction(id: unknown): Promise<ActionResult> {
     "We couldn't delete this expense. Please try again.",
     "Expense deleted.",
   );
+}
+
+export async function importRecordsAction(input: unknown): Promise<ActionResult<{ income: number; expenses: number; duplicates: number }>> {
+  return run(async () => {
+    const user = await authenticate();
+    const result = await importRecords(user.id, importSchema.parse(input));
+    refresh();
+    return result;
+  }, "We couldn't import these rows. Please try again.");
 }
 
 export async function addQualifyingPaymentAction(input: unknown): Promise<ActionResult> {

@@ -719,4 +719,11 @@ export const server: Catalog = {
   "1.5% per month or part of a month on the late amount.": "தாமதமான தொகையின் மீது மாதத்துக்கு அல்லது மாதத்தின் பகுதிக்கு 1.5%.",
   "False or misleading statement": "பொய்யான அல்லது தவறாக வழிநடத்தும் கூற்று",
   "Greater of Rs. 50,000 and the tax understated.": "ரூ. 50,000 மற்றும் குறைத்துக் காட்டப்பட்ட வரி, இவற்றில் அதிகமானது.",
+  "Import": "இறக்குமதி",
+  "Import a statement": "கூற்றை இறக்குமதி செய்க",
+  "Bring in the transactions of {year} from a bank, card or sales statement instead of typing them. You check every row before anything is saved.": "{year} ஆண்டின் கொடுக்கல் வாங்கல்களைத் தட்டச்சு செய்வதற்குப் பதிலாக வங்கி, அட்டை அல்லது விற்பனைக் கூற்றிலிருந்து கொண்டுவரவும். எதுவும் சேமிக்கப்படுவதற்கு முன் ஒவ்வொரு வரிசையையும் நீங்கள் சரிபார்க்கிறீர்கள்.",
+  "A statement shows what moved through an account, not why. Keep the statement and the receipts behind it; the tax office can ask for them.": "கூற்று ஒரு கணக்கினூடாகச் சென்ற பணத்தைக் காட்டுகிறது, அதற்கான காரணத்தை அல்ல. கூற்றையும் அதற்குரிய பற்றுச்சீட்டுகளையும் வைத்திருங்கள்; வரி அலுவலகம் அவற்றைக் கேட்கலாம்.",
+  "We couldn't import these rows. Please try again.": "இந்த வரிசைகளை இறக்குமதி செய்ய முடியவில்லை. மீண்டும் முயலவும்.",
+  "Treated as deductible on your confirmation. This is a total of several cash payments, so the rule against deducting a large single cash payment could not be checked. Leave any such payment out of the total and record it on its own.": "உங்கள் உறுதிப்படுத்தலின் பேரில் கழிக்கத்தக்கதாகக் கருதப்பட்டது. இது பல காசுக் கொடுப்பனவுகளின் மொத்தம் என்பதால், பெரிய தனிக் காசுக் கொடுப்பனவைக் கழிப்பதற்கு எதிரான விதியைச் சரிபார்க்க முடியவில்லை. அத்தகைய கொடுப்பனவை மொத்தத்திலிருந்து நீக்கி, தனியாகப் பதிவு செய்யவும்.",
+  "Some rows are dated outside this year of assessment.": "சில வரிசைகளின் திகதிகள் இந்த மதிப்பீட்டு ஆண்டுக்கு வெளியே உள்ளன.",
 };

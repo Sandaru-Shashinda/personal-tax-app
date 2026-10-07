@@ -3,7 +3,7 @@ import type { Deductibility, Prisma } from "@prisma/client";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db";
 import { AppError, notFound } from "@/lib/errors";
-import { parseISODate, toISODate } from "@/lib/format";
+import { firstOfMonth, parseISODate, toISODate } from "@/lib/format";
 import { classifyExpense } from "@/lib/tax/expense-classifier";
 import { optionalRule } from "@/lib/tax/rule-set";
 import type { ExpenseInput, QualifyingPaymentInput } from "@/lib/validation/records";
@@ -25,6 +25,7 @@ type ExpenseRow = Prisma.ExpenseGetPayload<{ include: typeof expenseInclude }>;
 function toDTO(row: ExpenseRow) {
   return {
     id: row.id,
+    period: row.period,
     incurredOn: toISODate(row.incurredOn),
     amount: n(row.amount),
     category: row.category,
@@ -81,28 +82,39 @@ export async function listExpenses(userId: string, taxYearCode: string, query: E
   };
 }
 
-async function classify(userId: string, input: ExpenseInput, taxYear: TaxYearInfo) {
-  let linkedSourceType: string | null = null;
-  if (input.incomeSourceId) {
-    const source = await db.incomeSource.findFirst({ where: { id: input.incomeSourceId, userId, deletedAt: null } });
-    if (!source) throw notFound("income source");
-    linkedSourceType = source.type;
-  }
+/** The type of the income source an expense is linked to, checked to belong to the user. */
+export async function linkedSourceType(userId: string, incomeSourceId: string | undefined): Promise<string | null> {
+  if (!incomeSourceId) return null;
+  const source = await db.incomeSource.findFirst({ where: { id: incomeSourceId, userId, deletedAt: null } });
+  if (!source) throw notFound("income source");
+  return source.type;
+}
+
+export async function cashPaymentLimit(taxYear: TaxYearInfo): Promise<number> {
   const rule = optionalRule(await loadRuleSet(taxYear.code), "EXPENSE_DEDUCTIBILITY", "general");
+  return rule?.params.cashPaymentLimit ?? NO_CASH_LIMIT;
+}
+
+export function classifyInput(input: ExpenseInput, sourceType: string | null, cashLimit: number) {
   return classifyExpense(
     {
       amount: input.amount,
       paymentMethod: input.paymentMethod,
       isCapital: input.isCapital,
-      linkedSourceType,
+      linkedSourceType: sourceType,
       userConfirmedBusinessPurpose: input.userConfirmedBusinessPurpose,
       businessUsePercent: input.businessUsePercent,
+      isSummary: input.period === "MONTHLY",
     },
-    rule?.params.cashPaymentLimit ?? NO_CASH_LIMIT,
+    cashLimit,
   );
 }
 
-function assertInYear(date: string, taxYear: TaxYearInfo, field: string) {
+async function classify(userId: string, input: ExpenseInput, taxYear: TaxYearInfo) {
+  return classifyInput(input, await linkedSourceType(userId, input.incomeSourceId), await cashPaymentLimit(taxYear));
+}
+
+export function assertInYear(date: string, taxYear: TaxYearInfo, field: string) {
   if (date < taxYear.startsOn || date > taxYear.endsOn) {
     throw new AppError("Please check the highlighted fields.", 422, {
       [field]: [`This date is outside the ${taxYear.code} year of assessment (1 April – 31 March).`],
@@ -110,11 +122,12 @@ function assertInYear(date: string, taxYear: TaxYearInfo, field: string) {
   }
 }
 
-function expenseData(input: ExpenseInput, taxYear: TaxYearInfo, c: Awaited<ReturnType<typeof classify>>) {
+export function expenseData(input: ExpenseInput, taxYear: TaxYearInfo, c: ReturnType<typeof classifyInput>) {
   return {
     taxYearId: taxYear.id,
     incomeSourceId: input.incomeSourceId ?? null,
-    incurredOn: parseISODate(input.incurredOn),
+    period: input.period,
+    incurredOn: parseISODate(input.period === "MONTHLY" ? firstOfMonth(input.incurredOn) : input.incurredOn),
     amount: input.amount,
     category: input.category,
     description: input.description,

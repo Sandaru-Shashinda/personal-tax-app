@@ -103,6 +103,8 @@ export const salaryEntrySchema = z.object({
 export const businessEntrySchema = z.object({
   ...entryBase,
   type: z.enum(["FREELANCE", "BUSINESS", "PROFESSIONAL"]),
+  // MONTHLY: grossAmount is the month's total takings, for businesses with too many sales to list.
+  period: z.enum(["ONE_OFF", "MONTHLY"]).default("ONE_OFF"),
   grossAmount: money,
   clientName: optionalText(200),
   invoiceNumber: optionalText(80),
@@ -168,6 +170,8 @@ export const EXPENSE_CATEGORIES = [
 
 export const expenseSchema = z.object({
   taxYear: taxYearCode,
+  // MONTHLY: amount is everything spent in this category during the month.
+  period: z.enum(["ONE_OFF", "MONTHLY"]).default("ONE_OFF"),
   incurredOn: pastOrTodayDate,
   amount: money.refine((v) => v > 0, "Enter an amount above zero"),
   category: z.enum(EXPENSE_CATEGORIES),
@@ -190,6 +194,49 @@ export const qualifyingPaymentSchema = z.object({
   description: optionalText(300),
 });
 export type QualifyingPaymentInput = z.infer<typeof qualifyingPaymentSchema>;
+
+// ── Statement import
+
+export const IMPORT_MAX_ROWS = 2000;
+export const IMPORT_INCOME_TYPES = ["BUSINESS", "FREELANCE", "PROFESSIONAL"] as const;
+
+const importPeriod = z.enum(["ONE_OFF", "MONTHLY"]).default("ONE_OFF");
+
+/** Rows read from a bank or sales statement, with the settings that apply to all of them. */
+export const importSchema = z
+  .object({
+    taxYear: taxYearCode,
+    expenses: z
+      .array(
+        z.object({
+          incurredOn: pastOrTodayDate,
+          amount: money.refine((v) => v > 0, "Enter an amount above zero"),
+          category: z.enum(EXPENSE_CATEGORIES),
+          description: z.string().trim().min(1, "Describe the expense").max(300),
+          period: importPeriod,
+        }),
+      )
+      .max(IMPORT_MAX_ROWS),
+    paymentMethod: z.enum(["CASH", "CARD", "BANK_TRANSFER", "CHEQUE", "OTHER"]).default("BANK_TRANSFER"),
+    /** Business the expenses were incurred for. Rows categorised as personal are never linked. */
+    expenseSourceId: optionalUuid,
+    userConfirmedBusinessPurpose: z.coerce.boolean().default(false),
+    income: z
+      .array(
+        z.object({
+          receivedOn: isoDate,
+          amount: money.refine((v) => v > 0, "Enter an amount above zero"),
+          description: optionalText(300),
+          period: importPeriod,
+        }),
+      )
+      .max(IMPORT_MAX_ROWS),
+    incomeType: z.enum(IMPORT_INCOME_TYPES).default("BUSINESS"),
+    incomeSourceName: optionalText(200),
+  })
+  .refine((v) => v.expenses.length + v.income.length > 0, { path: ["_form"], message: "Choose at least one row to import" })
+  .refine((v) => v.income.length === 0 || Boolean(v.incomeSourceName), { path: ["incomeSourceName"], message: "Name this income source" });
+export type ImportInput = z.infer<typeof importSchema>;
 
 export const QP_LABELS = {
   CHARITY_DONATION: "Donation to an approved charity",

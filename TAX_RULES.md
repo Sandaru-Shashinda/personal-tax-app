@@ -222,6 +222,8 @@ This is the area with the most judgement. The app classifies; it does not decide
 | `PARTIALLY_DEDUCTIBLE` | User supplies a business-use percentage (mixed-use costs) | apportionment |
 | `NON_DEDUCTIBLE` | Cash payments of Rs. 500,000 or more in a day / single transaction, other than by permitted methods | IRA s.10(2A): VERIFIED (S2 §2) |
 
+**Monthly totals.** An expense may be recorded as one total for a month instead of payment by payment. The s.10(2A) cash limit is a test on each payment, and a total does not show how large any one payment was, so the limit is **not applied** to a monthly total paid in cash: on the user's confirmation it is treated as deductible, and the reason shown says the limit could not be checked and that any single cash payment of that size must be left out and recorded on its own. The other tests (linked source, capital, confirmation, business-use share) apply to a total as they do to a single expense.
+
 Not modelled in v1 and stated as such in the UI: capital allowances (s.16), entertainment and other specific restrictions, thin capitalisation, loss carry-forward (six years; business losses against business or investment income, investment losses against investment income only — VERIFIED_SECONDARY, S12). A net business loss is floored at zero for the year and reported as an un-utilised loss requiring professional review.
 
 Rental income: the 25% rent relief (§3.3) is applied. Whether actual repair/maintenance costs may be claimed *in addition* is not addressed in the primary sources read — U6. The engine applies the 25% relief only.

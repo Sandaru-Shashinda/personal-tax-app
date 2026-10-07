@@ -7,7 +7,7 @@ import { Field, fieldError, nativeSelectClass } from "@/components/shared/form";
 import { RecordDialog } from "@/components/shared/record-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formatLKR } from "@/lib/format";
+import { firstOfMonth, formatLKR, formatMonth, monthsFrom, todayInSriLanka } from "@/lib/format";
 import { INCOME_TYPE_LABELS, incomeEntrySchema, type IncomeTypeValue } from "@/lib/validation/records";
 import type { IncomeEntryDTO } from "@/services/records/income-service";
 import { useT } from "@/lib/i18n/client";
@@ -18,6 +18,7 @@ const INVESTMENT_TYPES = ["INTEREST", "DIVIDEND", "INVESTMENT_OTHER"];
 
 function defaults(entry: IncomeEntryDTO | undefined, taxYearStart: string, preferred: IncomeTypeValue): FieldValues {
   const months = entry?.salary?.months ?? entry?.rental?.months ?? 1;
+  const thisMonth = firstOfMonth(todayInSriLanka());
   const perPeriod = (total: number) => (entry?.period === "MONTHLY" && months > 0 ? Math.round((total / months) * 100) / 100 : total);
   return {
     type: entry?.type ?? preferred,
@@ -48,6 +49,8 @@ function defaults(entry: IncomeEntryDTO | undefined, taxYearStart: string, prefe
     epfEmployee: entry?.salary?.epfEmployee || "",
     otherDeductions: entry?.salary?.otherDeductions || "",
     // Business
+    businessPeriod: entry?.business && entry.period === "MONTHLY" ? "MONTHLY" : "ONE_OFF",
+    receivedMonth: entry ? firstOfMonth(entry.receivedOn) : (monthsFrom(taxYearStart).findLast((month) => month <= thisMonth) ?? taxYearStart),
     clientName: entry?.business?.clientName ?? "",
     invoiceNumber: entry?.business?.invoiceNumber ?? "",
     isServiceExport: entry?.business?.isServiceExport ?? false,
@@ -94,6 +97,8 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
   const isGain = type === "CAPITAL_GAIN";
   const isRental = type === "RENTAL";
   const foreign = currency !== "LKR";
+  // A business with too many sales to list records one total per month instead.
+  const monthTotal = isBusiness && watch("businessPeriod") === "MONTHLY";
 
   const money = (name: string, label: string, options: { optional?: boolean; hint?: string } = {}) => (
     <Field label={label} error={err(name)} optional={options.optional} hint={options.hint}>
@@ -149,6 +154,8 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
         propertyName: values.sourceName,
         assetName: values.sourceName,
         institution: values.institution || values.sourceName,
+        ...(BUSINESS_TYPES.includes(values.type) && { period: values.businessPeriod }),
+        ...(BUSINESS_TYPES.includes(values.type) && values.businessPeriod === "MONTHLY" && { receivedOn: values.receivedMonth }),
       })}
       action={(data) => saveIncomeAction(entry?.id ?? null, data)}
       submitLabel={entry ? t("Save changes") : t("Add income")}
@@ -218,10 +225,34 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
 
       {!isSalary && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={isGain ? t("Date of disposal") : isRental ? t("First month") : t("Date received")} error={err("receivedOn")}>
-            {(p) => <Input type="date" min={taxYear.startsOn} max={taxYear.endsOn} {...p} {...register("receivedOn")} />}
-          </Field>
-          {!isGain && money("grossAmount", isRental ? t("Monthly rent") : foreign ? t("Gross amount in LKR") : t("Gross amount"))}
+          {isBusiness && (
+            <Field label={t("Entered as")} error={err("period")} className="sm:col-span-2">
+              {(p) => (
+                <select className={nativeSelectClass} {...p} {...register("businessPeriod")}>
+                  <option value="ONE_OFF">{t("Single receipt")}</option>
+                  <option value="MONTHLY">{t("Monthly total")}</option>
+                </select>
+              )}
+            </Field>
+          )}
+          {monthTotal ? (
+            <Field label={t("Month")} error={err("receivedOn")}>
+              {(p) => (
+                <select className={nativeSelectClass} {...p} {...register("receivedMonth")}>
+                  {monthsFrom(taxYear.startsOn).map((month) => (
+                    <option key={month} value={month}>
+                      {formatMonth(month)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          ) : (
+            <Field label={isGain ? t("Date of disposal") : isRental ? t("First month") : t("Date received")} error={err("receivedOn")}>
+              {(p) => <Input type="date" min={taxYear.startsOn} max={taxYear.endsOn} {...p} {...register("receivedOn")} />}
+            </Field>
+          )}
+          {!isGain && money("grossAmount", monthTotal ? t("Total for the month") : isRental ? t("Monthly rent") : foreign ? t("Gross amount in LKR") : t("Gross amount"))}
           {isRental && (
             <Field label={t("Number of months")} error={err("months")}>
               {(p) => <Input type="number" min={1} max={12} {...p} {...register("months")} />}
@@ -247,7 +278,7 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
             </>
           )}
           {money("withholdingTax", withholdingLabel, { optional: true })}
-          {isBusiness && (
+          {isBusiness && !monthTotal && (
             <>
               <Field label={t("Client or customer")} error={err("clientName")} optional>
                 {(p) => <Input {...p} {...register("clientName")} />}
@@ -269,6 +300,8 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
           )}
         </div>
       )}
+
+      {monthTotal && <p className="text-xs text-muted-foreground">{t("Keep the bills, receipts or statements behind this total. The tax office can ask for them, and you can store them under Documents.")}</p>}
 
       {isGain && (
         <p className="tabular rounded-lg bg-muted px-3 py-2 text-sm" role="status">
@@ -295,7 +328,7 @@ export function IncomeForm({ taxYear, sources, entry, preferredType = "SALARY", 
       )}
 
       <Field label={t("Description")} error={err("description")} optional>
-        {(p) => <Input placeholder={isSalary ? t("e.g. Software Engineer salary") : t("e.g. Invoice INV-014")} {...p} {...register("description")} />}
+        {(p) => <Input placeholder={isSalary ? t("e.g. Software Engineer salary") : monthTotal ? t("e.g. Counter sales") : t("e.g. Invoice INV-014")} {...p} {...register("description")} />}
       </Field>
 
       {!isGain && (
