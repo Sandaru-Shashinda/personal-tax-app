@@ -9,6 +9,8 @@ const schema = z.object({
     .refine((v) => Buffer.from(v, "base64").length === 32, "ENCRYPTION_KEY must be 32 bytes, base64-encoded"),
   STORAGE_DIR: z.string().default("./.storage"),
   EMAIL_FROM: z.string().default("Ayakara <no-reply@localhost>"),
+  // Set to "false" to switch every rate limit off (local development only).
+  RATE_LIMIT_ENABLED: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
 });
 
 let cached: z.infer<typeof schema> | undefined;

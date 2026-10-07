@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 
 interface Limit {
@@ -19,9 +20,11 @@ export const LIMITS = {
 
 /**
  * Fixed-window counter in PostgreSQL. A single atomic upsert, so concurrent requests cannot
- * slip past the limit. Throws a 429 AppError when the limit is exceeded.
+ * slip past the limit. Throws a 429 AppError when the limit is exceeded. Does nothing when
+ * RATE_LIMIT_ENABLED is "false".
  */
 export async function rateLimit(bucket: keyof typeof LIMITS, subject: string): Promise<void> {
+  if (!env().RATE_LIMIT_ENABLED) return;
   const { max, windowSeconds } = LIMITS[bucket];
   const key = `${bucket}:${subject}`.slice(0, 200);
   const rows = await db.$queryRaw<{ count: number }[]>`
